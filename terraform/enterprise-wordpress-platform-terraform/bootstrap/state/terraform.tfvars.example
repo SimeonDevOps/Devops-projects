@@ -1,0 +1,10 @@
+aws_region = "us-east-1"
+
+bucket_name = "replace-with-your-unique-terraform-state-bucket"
+
+tags = {
+  Project     = "enterprise-wordpress"
+  Environment = "bootstrap"
+  ManagedBy   = "Terraform"
+  Owner       = "devops-portfolio"
+}

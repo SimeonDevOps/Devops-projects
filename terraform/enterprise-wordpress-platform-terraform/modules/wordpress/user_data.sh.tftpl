@@ -1,0 +1,158 @@
+#!/bin/bash
+
+set -euxo pipefail
+
+exec > >(tee /var/log/wordpress-bootstrap.log | logger -t wordpress-bootstrap -s 2>/dev/console) 2>&1
+
+export DEBIAN_FRONTEND=noninteractive
+
+echo "Starting WordPress bootstrap..."
+
+apt-get update -y
+apt-get upgrade -y
+
+apt-get install -y \
+  apache2 \
+  mysql-server \
+  php \
+  php-cli \
+  php-mysql \
+  libapache2-mod-php \
+  php-curl \
+  php-gd \
+  php-mbstring \
+  php-xml \
+  php-xmlrpc \
+  php-soap \
+  php-intl \
+  php-zip \
+  unzip \
+  curl \
+  tar \
+  jq \
+  snapd
+
+systemctl enable --now apache2
+systemctl enable --now mysql
+
+a2enmod rewrite
+
+snap install amazon-ssm-agent --classic || true
+
+systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || true
+
+WP_TITLE="$(printf '%s' '${wordpress_title_b64}' | base64 --decode)"
+WP_ADMIN_EMAIL="$(printf '%s' '${wordpress_admin_email_b64}' | base64 --decode)"
+WP_ADMIN_PASSWORD="$(printf '%s' '${wordpress_admin_password_b64}' | base64 --decode)"
+DB_PASSWORD="$(printf '%s' '${wordpress_db_password_b64}' | base64 --decode)"
+SITE_URL="$(printf '%s' '${site_url_b64}' | base64 --decode)"
+
+DB_PASSWORD_SQL="$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")"
+
+mysql --protocol=socket -uroot <<SQL
+CREATE DATABASE IF NOT EXISTS \`${wordpress_db_name}\`
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS '${wordpress_db_user}'@'localhost'
+  IDENTIFIED BY '$${DB_PASSWORD_SQL}';
+
+ALTER USER '${wordpress_db_user}'@'localhost'
+  IDENTIFIED BY '$${DB_PASSWORD_SQL}';
+
+GRANT ALL PRIVILEGES
+  ON \`${wordpress_db_name}\`.*
+  TO '${wordpress_db_user}'@'localhost';
+
+FLUSH PRIVILEGES;
+SQL
+
+rm -rf /var/www/wordpress
+mkdir -p /var/www
+
+cd /tmp
+
+curl -fsSLO https://wordpress.org/latest.tar.gz
+
+tar -xzf latest.tar.gz -C /var/www
+
+curl -fsSL \
+  -o /usr/local/bin/wp \
+  https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+
+chmod +x /usr/local/bin/wp
+
+wp core download \
+  --path=/var/www/wordpress \
+  --version='${wordpress_version}' \
+  --force \
+  --allow-root
+
+wp config create \
+  --path=/var/www/wordpress \
+  --dbname='${wordpress_db_name}' \
+  --dbuser='${wordpress_db_user}' \
+  --dbpass="$DB_PASSWORD" \
+  --dbhost='localhost' \
+  --allow-root
+
+chown -R www-data:www-data /var/www/wordpress
+
+find /var/www/wordpress -type d -exec chmod 755 {} \;
+find /var/www/wordpress -type f -exec chmod 644 {} \;
+
+mkdir -p /var/www/wordpress/wp-content/uploads
+
+chown -R www-data:www-data /var/www/wordpress/wp-content/uploads
+
+cat > /etc/apache2/sites-available/wordpress.conf <<'APACHE'
+<VirtualHost *:80>
+
+    DocumentRoot /var/www/wordpress
+
+    <Directory /var/www/wordpress>
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog $${APACHE_LOG_DIR}/wordpress_error.log
+    CustomLog $${APACHE_LOG_DIR}/wordpress_access.log combined
+
+</VirtualHost>
+APACHE
+
+a2dissite 000-default.conf || true
+a2ensite wordpress.conf
+
+systemctl restart apache2
+
+if [[ -n "$SITE_URL" ]]; then
+
+    wp core install \
+      --path=/var/www/wordpress \
+      --url="$SITE_URL" \
+      --title="$WP_TITLE" \
+      --admin_user='${wordpress_admin_user}' \
+      --admin_password="$WP_ADMIN_PASSWORD" \
+      --admin_email="$WP_ADMIN_EMAIL" \
+      --skip-email \
+      --allow-root
+
+else
+
+    echo "SITE_URL was not supplied."
+    echo "Complete the WordPress web installer manually."
+
+fi
+
+cat > /var/www/wordpress/healthz <<'EOF'
+ok
+EOF
+
+chown www-data:www-data /var/www/wordpress/healthz
+
+systemctl restart apache2
+
+touch /var/log/wordpress-bootstrap.complete
+
+echo "WordPress bootstrap completed."

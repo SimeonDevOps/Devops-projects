@@ -1,0 +1,41 @@
+name: Terraform CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  terraform-checks:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform format check
+        run: terraform fmt -check -recursive
+
+      - name: Initialize bootstrap configuration
+        run: terraform -chdir=bootstrap/state init -backend=false
+
+      - name: Validate bootstrap configuration
+        run: terraform -chdir=bootstrap/state validate
+
+      - name: Initialize environment
+        run: terraform -chdir=environments/dev init -backend=false
+
+      - name: Validate environment
+        run: terraform -chdir=environments/dev validate

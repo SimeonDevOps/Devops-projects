@@ -1,0 +1,10 @@
+aws_region = "us-east-1"
+
+bucket_name = "replace-with-your-unique-state-bucket-name"
+
+tags = {
+  Project     = "enterprise-web-platform"
+  Environment = "bootstrap"
+  ManagedBy   = "Terraform"
+  Owner       = "devops-portfolio"
+}

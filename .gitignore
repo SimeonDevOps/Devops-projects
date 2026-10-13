@@ -1,0 +1,50 @@
+# Terraform working directories
+**/.terraform/*
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+
+# Real variable files; keep examples
+*.tfvars
+!*.tfvars.example
+
+# Local backend configuration
+**/backend.hcl
+
+# Plans and crash logs
+*.plan
+crash.log
+crash.*.log
+
+# Environment secrets
+.env
+.env.*# Terraform working directories
+**/.terraform/*
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+
+# Real variable files; keep examples
+*.tfvars
+!*.tfvars.example
+
+# Local backend configuration
+**/backend.hcl
+
+# Plans and crash logs
+*.plan
+crash.log
+crash.*.log
+
+# Environment secrets
+.env
+.env.*
+
+# Editor and operating system files
+.vscode/
+.DS_Store
+Thumbs.db

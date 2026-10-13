@@ -1,0 +1,38 @@
+#cloud-config
+
+package_update: true
+package_upgrade: false
+
+packages:
+  - nginx
+  - curl
+
+write_files:
+  - path: /var/www/html/index.html
+    owner: root:root
+    permissions: "0644"
+    content: |
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>${site_title}</title>
+      </head>
+      <body>
+        <h1>${site_title}</h1>
+        <p>This page was provisioned automatically.</p>
+        <p>Infrastructure: Terraform on AWS.</p>
+        <p>Configuration: cloud-init.</p>
+        <p>Client: Global Technology Enterprise (Simulated).</p>
+      </body>
+      </html>
+
+  - path: /var/www/html/healthz
+    owner: root:root
+    permissions: "0644"
+    content: |
+      ok
+
+runcmd:
+  - [systemctl, enable, --now, nginx]
