@@ -1,0 +1,15 @@
+# Terraform working files
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+
+# Local configuration; commit only the example templates
+**/terraform.tfvars
+**/terraform.tfvars.*
+!**/terraform.tfvars.example
+**/backend.hcl
+**/backend.hcl.*
+!**/backend.hcl.example

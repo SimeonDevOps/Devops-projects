@@ -1,5 +1,5 @@
 project_name = "enterprise-web-platform"
-client_name  = "Global Technology Enterprise (Simulated)"
+client_name  = "Global Technology Enterprise Simulated"
 environment  = "dev"
 aws_region   = "us-east-1"
 
