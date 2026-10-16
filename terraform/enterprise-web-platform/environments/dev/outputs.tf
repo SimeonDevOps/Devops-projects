@@ -102,3 +102,27 @@ output "efs_mount_target_ids" {
   description = "EFS mount target IDs."
   value       = module.efs.mount_target_ids
 }
+
+output "alb_dns_name" {
+  description = "Public DNS name of the Application Load Balancer."
+  value       = module.alb.alb_dns_name
+}
+
+output "wordpress_asg_name" {
+  description = "WordPress Auto Scaling Group name."
+  value       = module.wordpress.autoscaling_group_name
+}
+output "wordpress_target_group_arn" {
+  description = "WordPress Application Load Balancer target group ARN."
+  value       = module.alb.target_group_arn
+}
+
+output "wordpress_application_secret_name" {
+  description = "WordPress application secret name."
+  value       = module.db_bootstrap.application_secret_name
+}
+
+output "wordpress_site_url" {
+  description = "WordPress website URL."
+  value       = "http://${module.alb.alb_dns_name}"
+}

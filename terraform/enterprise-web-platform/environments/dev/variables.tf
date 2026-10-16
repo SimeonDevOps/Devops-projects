@@ -147,3 +147,45 @@ variable "efs_transition_to_ia_days" {
   default     = 30
   nullable    = true
 }
+
+variable "wordpress_instance_type" {
+  description = "EC2 instance type for WordPress."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "wordpress_root_volume_size" {
+  description = "EC2 root volume size in GiB."
+  type        = number
+  default     = 20
+}
+
+variable "wordpress_min_size" {
+  description = "Minimum WordPress instance count."
+  type        = number
+  default     = 2
+}
+
+variable "wordpress_max_size" {
+  description = "Maximum WordPress instance count."
+  type        = number
+  default     = 4
+}
+
+variable "wordpress_desired_capacity" {
+  description = "Desired WordPress instance count."
+  type        = number
+  default     = 2
+}
+
+variable "domain_name" {
+  description = "Optional website domain, such as www.example.com."
+  type        = string
+  default     = ""
+}
+
+variable "route53_zone_id" {
+  description = "Optional Route 53 public hosted zone ID."
+  type        = string
+  default     = ""
+}

@@ -1,15 +1,17 @@
-# Terraform working files
+# Terraform local files
 **/.terraform/*
 *.tfstate
 *.tfstate.*
 *.tfplan
-tfplan
 crash.log
 
-# Local configuration; commit only the example templates
+# Local environment files
 **/terraform.tfvars
 **/terraform.tfvars.*
 !**/terraform.tfvars.example
 **/backend.hcl
 **/backend.hcl.*
 !**/backend.hcl.example
+
+# Locally generated Lambda package
+modules/platform/db_bootstrap/build/*.zip
