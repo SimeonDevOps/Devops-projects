@@ -15,3 +15,7 @@ crash.log
 
 # Locally generated Lambda package
 modules/platform/db_bootstrap/build/*.zip
+
+# Private keys
+*.pem
+*.key

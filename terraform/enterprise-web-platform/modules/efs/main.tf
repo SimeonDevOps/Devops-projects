@@ -33,3 +33,26 @@ resource "aws_efs_mount_target" "this" {
   subnet_id       = each.value
   security_groups = [var.security_group_id]
 }
+
+resource "aws_efs_access_point" "wordpress_uploads" {
+  file_system_id = aws_efs_file_system.this.id
+
+  posix_user {
+    uid = 33
+    gid = 33
+  }
+
+  root_directory {
+    path = "/wordpress/uploads"
+
+    creation_info {
+      owner_uid   = 33
+      owner_gid   = 33
+      permissions = "0775"
+    }
+  }
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-wordpress-uploads"
+  })
+}

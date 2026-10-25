@@ -86,6 +86,9 @@ module "wordpress" {
   aws_region  = var.aws_region
   vpc_id      = module.network.vpc_id
 
+  bootstrap_log_group_name = module.logging.bootstrap_log_group_name
+  apache_log_group_name    = module.logging.apache_log_group_name
+
   subnet_ids        = module.network.app_subnet_ids
   security_group_id = module.security.app_security_group_id
   target_group_arn  = module.alb.target_group_arn
@@ -95,6 +98,7 @@ module "wordpress" {
   min_size         = var.wordpress_min_size
   max_size         = var.wordpress_max_size
   desired_capacity = var.wordpress_desired_capacity
+
 
   application_secret_name        = module.db_bootstrap.application_secret_name
   application_secret_arn_pattern = module.db_bootstrap.application_secret_arn_pattern
@@ -110,6 +114,55 @@ module "wordpress" {
 
   depends_on = [
     module.db_bootstrap,
-    module.efs
+    module.efs,
+    module.logging
   ]
 }
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  name_prefix = local.name_prefix
+
+  alb_arn          = module.alb.alb_arn
+  target_group_arn = module.alb.target_group_arn
+  asg_name         = module.wordpress.autoscaling_group_name
+
+  rds_identifier    = module.rds.db_instance_identifier
+  backup_vault_name = "${local.name_prefix}-backup-vault"
+
+  alert_email        = var.operations_alert_email
+  log_retention_days = var.log_retention_days
+
+  tags = local.common_tags
+
+}
+
+module "backup" {
+  source = "../../modules/backup"
+
+  name_prefix = local.name_prefix
+
+  resource_arns = [
+    module.rds.db_instance_arn,
+    module.efs.file_system_arn
+  ]
+
+  alert_topic_arn = module.monitoring.alert_topic_arn
+
+  delete_after_days = var.backup_retention_days
+
+  schedule_expression = "cron(0 5 ? * SUN *)"
+
+  tags = local.common_tags
+}
+
+module "logging" {
+  source = "../../modules/logging"
+
+  name_prefix    = local.name_prefix
+  retention_days = var.log_retention_days
+
+  tags = local.common_tags
+}
+

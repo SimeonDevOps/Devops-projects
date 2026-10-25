@@ -17,3 +17,13 @@ output "mount_target_ids" {
   description = "IDs of the EFS mount targets."
   value       = [for target in aws_efs_mount_target.this : target.id]
 }
+
+output "wordpress_uploads_access_point_id" {
+  description = "EFS access point for shared WordPress uploads."
+  value       = aws_efs_access_point.wordpress_uploads.id
+}
+
+output "wordpress_uploads_access_point_arn" {
+  description = "ARN of the EFS access point for WordPress uploads."
+  value       = aws_efs_access_point.wordpress_uploads.arn
+} 

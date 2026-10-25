@@ -1,0 +1,288 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+exec > >(tee -a /var/log/wordpress-bootstrap.log) 2>&1
+echo "Starting WordPress cloud-init bootstrap"
+
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y \
+  apache2 \
+  curl \
+  unzip \
+  rsync \
+  git \
+  binutils \
+  rustc \
+  cargo \
+  pkg-config \
+  libssl-dev \
+  cmake \
+  golang-go \
+  python3 \
+  python3-boto3 \
+  php \
+  libapache2-mod-php \
+  php-mysql \
+  php-curl \
+  php-gd \
+  php-intl \
+  php-mbstring \
+  php-xml \
+  php-zip \
+  php-bcmath
+
+# Build and install the official Amazon EFS mount helper.
+cd /tmp
+
+curl --proto '=https' --tlsv1.2 -sSf \
+  https://sh.rustup.rs \
+  -o /tmp/rustup-init.sh
+
+sh /tmp/rustup-init.sh -y --profile minimal
+export PATH="/root/.cargo/bin:$PATH"
+rustup update stable
+
+git clone --depth 1 https://github.com/aws/efs-utils.git
+cd efs-utils
+./build-deb.sh
+apt-get install -y ./build/amazon-efs-utils*deb
+
+# Create the WordPress document root.
+install -d -o www-data -g www-data -m 0755 /var/www/html
+rm -f /var/www/html/index.html
+
+curl --fail --silent --show-error --location \
+  https://wordpress.org/latest.tar.gz \
+  --output /tmp/wordpress.tar.gz
+
+tar -xzf /tmp/wordpress.tar.gz -C /tmp
+rsync -a /tmp/wordpress/ /var/www/html/
+
+# Terraform-managed ALB health endpoint
+cat > /var/www/html/health.php <<'HEALTHPHP'
+<?php
+http_response_code(200);
+header('Content-Type: text/plain');
+echo "ok\n";
+HEALTHPHP
+chown www-data:www-data /var/www/html/health.php
+chmod 0644 /var/www/html/health.php
+
+# Mount shared media storage through the EFS access point with TLS and IAM auth.
+install -d -o www-data -g www-data -m 0775 /var/www/html/wp-content/uploads
+
+EFS_MOUNT_LINE="${efs_file_system_id}:/ /var/www/html/wp-content/uploads efs _netdev,tls,iam,accesspoint=${efs_access_point_id} 0 0"
+
+if ! grep -Fq "${efs_file_system_id}:/ /var/www/html/wp-content/uploads" /etc/fstab; then
+  echo "$EFS_MOUNT_LINE" >> /etc/fstab
+fi
+
+mount -t efs -o tls,iam,accesspoint=${efs_access_point_id} \
+  ${efs_file_system_id}:/ /var/www/html/wp-content/uploads
+
+chown -R www-data:www-data /var/www/html
+chmod 0755 /var/www/html
+
+# Fetch the application secret at runtime. Do not print the secret.
+cat > /usr/local/sbin/configure-wordpress.py <<'PYTHON'
+import json
+import os
+import re
+import secrets
+import subprocess
+
+import boto3
+
+region = "${aws_region}"
+secret_name = "${application_secret_name}"
+expected_db_name = "${db_name}"
+site_url = "${site_url}"
+
+client = boto3.client("secretsmanager", region_name=region)
+response = client.get_secret_value(SecretId=secret_name)
+credentials = json.loads(response["SecretString"])
+
+required = ["host", "port", "dbname", "username", "password"]
+for key in required:
+    if not credentials.get(key):
+        raise RuntimeError(f"Application database secret is missing: {key}")
+
+if credentials["dbname"] != expected_db_name:
+    raise RuntimeError("Application database secret database name does not match configuration.")
+
+def php_string(value):
+    value = str(value).replace("\\", "\\\\").replace("'", "\\'")
+    return "'" + value + "'"
+
+sample_path = "/var/www/html/wp-config-sample.php"
+config_path = "/var/www/html/wp-config.php"
+
+with open(sample_path, "r", encoding="utf-8") as handle:
+    config = handle.read()
+
+values = {
+    "DB_NAME": credentials["dbname"],
+    "DB_USER": credentials["username"],
+    "DB_PASSWORD": credentials["password"],
+    "DB_HOST": credentials["host"],
+    "DB_CHARSET": "utf8mb4",
+    "DB_COLLATE": "",
+}
+
+for key, value in values.items():
+    pattern = r"define\(\s*'" + re.escape(key) + r"'\s*,\s*.*?\);"
+    replacement = "define('" + key + "', " + php_string(value) + ");"
+    config, count = re.subn(pattern, replacement, config, count=1)
+    if count != 1:
+        raise RuntimeError(f"Could not configure WordPress setting: {key}")
+
+for key in [
+    "AUTH_KEY", "SECURE_AUTH_KEY", "LOGGED_IN_KEY", "NONCE_KEY",
+    "AUTH_SALT", "SECURE_AUTH_SALT", "LOGGED_IN_SALT", "NONCE_SALT"
+]:
+    pattern = r"define\(\s*'" + re.escape(key) + r"'\s*,\s*.*?\);"
+    replacement = "define('" + key + "', " + php_string(secrets.token_urlsafe(64)) + ");"
+    config, count = re.subn(pattern, replacement, config, count=1)
+    if count != 1:
+        raise RuntimeError(f"Could not configure WordPress security key: {key}")
+
+if site_url:
+    url_code = (
+        "\\ndefine('WP_HOME', " + php_string(site_url) + ");"
+        "\\ndefine('WP_SITEURL', " + php_string(site_url) + ");\\n"
+    )
+    config = config.replace("/* That's all, stop editing!", url_code + "\\n/* That's all, stop editing!")
+
+proxy_code = """
+if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) &&
+    strpos($_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {
+    $_SERVER['HTTPS'] = 'on';
+}
+"""
+config = config.replace("/* That's all, stop editing!", proxy_code + "\\n/* That's all, stop editing!")
+
+with open(config_path, "w", encoding="utf-8") as handle:
+    handle.write(config)
+
+os.chmod(config_path, 0o640)
+subprocess.run(["chown", "www-data:www-data", config_path], check=True)
+PYTHON
+
+chmod 0750 /usr/local/sbin/configure-wordpress.py
+/usr/bin/python3 /usr/local/sbin/configure-wordpress.py
+rm -f /usr/local/sbin/configure-wordpress.py
+
+# Health check returns 200 only when the application database is reachable.
+cat > /var/www/html/health.php <<'PHP'
+<?php
+require_once __DIR__ . '/wp-config.php';
+
+mysqli_report(MYSQLI_REPORT_OFF);
+$db = @new mysqli(DB_HOST, DB_USER, DB_PASSWORD, DB_NAME);
+
+if ($db->connect_errno) {
+    http_response_code(503);
+    exit('database unavailable');
+}
+
+$result = $db->query('SELECT 1');
+
+if ($result === false) {
+    http_response_code(503);
+    exit('database check failed');
+}
+
+http_response_code(200);
+header('Content-Type: text/plain');
+echo "healthy\n";
+$db->close();
+PHP
+
+# Apache settings.
+a2enmod rewrite headers
+cat > /etc/apache2/conf-available/wordpress.conf <<'APACHE'
+<Directory /var/www/html>
+    AllowOverride All
+    Require all granted
+</Directory>
+APACHE
+
+a2enconf wordpress
+chown -R www-data:www-data /var/www/html
+systemctl enable apache2
+systemctl restart apache2
+
+# Do not report successful bootstrap until the application health check passes.
+for attempt in $(seq 1 30); do
+  if curl --fail --silent http://127.0.0.1/health.php >/dev/null; then
+    echo "WordPress bootstrap completed successfully"
+    exit 0
+  fi
+  sleep 10
+done
+
+echo "WordPress bootstrap failed health check"
+exit 1
+
+
+# ------------------------------------------------------------
+# CloudWatch Agent: ship WordPress bootstrap and Apache logs
+# ------------------------------------------------------------
+
+CW_AGENT_DEB="/tmp/amazon-cloudwatch-agent.deb"
+
+curl --fail --silent --show-error --location \
+  "https://amazoncloudwatch-agent-${aws_region}.s3.${aws_region}.amazonaws.com/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb" \
+  --output "$CW_AGENT_DEB"
+
+dpkg -i "$CW_AGENT_DEB"
+
+install -d -m 0755 /opt/aws/amazon-cloudwatch-agent/etc
+
+cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'CW_CONFIG'
+{
+  "agent": {
+    "metrics_collection_interval": 60,
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/wordpress-bootstrap.log",
+            "log_group_name": "${bootstrap_log_group_name}",
+            "log_stream_name": "{instance_id}/bootstrap"
+          },
+          {
+            "file_path": "/var/log/cloud-init-output.log",
+            "log_group_name": "${bootstrap_log_group_name}",
+            "log_stream_name": "{instance_id}/cloud-init"
+          },
+          {
+            "file_path": "/var/log/apache2/access.log",
+            "log_group_name": "${apache_log_group_name}",
+            "log_stream_name": "{instance_id}/access"
+          },
+          {
+            "file_path": "/var/log/apache2/error.log",
+            "log_group_name": "${apache_log_group_name}",
+            "log_stream_name": "{instance_id}/error"
+          }
+        ]
+      }
+    }
+  }
+}
+CW_CONFIG
+
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config \
+  -m ec2 \
+  -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json \
+  -s
+
+systemctl enable amazon-cloudwatch-agent
+systemctl restart amazon-cloudwatch-agent

@@ -189,3 +189,21 @@ variable "route53_zone_id" {
   type        = string
   default     = ""
 }
+
+
+variable "operations_alert_email" {
+  description = "Email address for platform alarms and backup failure notifications."
+  type        = string
+}
+
+variable "log_retention_days" {
+  description = "Retention period for application logs in days."
+  type        = number
+  default     = 30
+}
+
+variable "backup_retention_days" {
+  description = "Number of days to retain backup recovery points."
+  type        = number
+  default     = 35
+}

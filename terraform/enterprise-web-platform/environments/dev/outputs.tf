@@ -126,3 +126,48 @@ output "wordpress_site_url" {
   description = "WordPress website URL."
   value       = "http://${module.alb.alb_dns_name}"
 }
+
+output "operational_alert_topic_arn" {
+  description = "SNS topic for platform alarms and backup notifications."
+  value       = module.monitoring.alert_topic_arn
+}
+
+output "wordpress_bootstrap_log_group" {
+  description = "CloudWatch log group for WordPress bootstrap logs."
+  value       = module.logging.bootstrap_log_group_name
+}
+
+output "wordpress_apache_log_group" {
+  description = "CloudWatch log group for Apache access and error logs."
+  value       = module.logging.apache_log_group_name
+}
+
+output "platform_backup_vault_name" {
+  description = "AWS Backup vault containing persistent-data recovery points."
+  value       = module.backup.backup_vault_name
+}
+
+output "platform_backup_plan_id" {
+  description = "AWS Backup plan ID."
+  value       = module.backup.backup_plan_id
+}
+
+output "platform_alarm_names" {
+  description = "CloudWatch alarms managed by the monitoring module."
+  value       = module.monitoring.alarm_names
+}
+
+output "rds_backup_resource_arn" {
+  description = "RDS instance ARN used for backup and recovery testing."
+  value       = module.rds.db_instance_arn
+}
+
+output "efs_backup_resource_arn" {
+  description = "EFS file system ARN used for backup and recovery testing."
+  value       = module.efs.file_system_arn
+}
+
+output "backup_service_role_arn" {
+  description = "IAM role assumed by AWS Backup."
+  value       = module.backup.backup_role_arn
+}

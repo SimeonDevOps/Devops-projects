@@ -1,3 +1,8 @@
+output "db_instance_identifier" {
+  description = "Identifier of the WordPress RDS instance."
+  value       = aws_db_instance.this.identifier
+}
+
 output "db_instance_id" {
   description = "The RDS DB instance identifier."
   value       = aws_db_instance.this.identifier
